@@ -15,18 +15,25 @@ export default function ReportsScreen() {
   const [activeTab, setActiveTab] = useState('Audit');
   const [auditLogs, setAuditLogs] = useState([]);
   const [commLogs, setCommLogs] = useState([]);
+  const [consolidated, setConsolidated] = useState<Record<string, any>>({});
+  const [scoresBatch, setScoresBatch] = useState<string | null>(null);
   const { colors, isDark } = useTheme();
 
   const fetchReports = async () => {
     try {
-      const [revRes, auditRes, commRes] = await Promise.all([
+      const [revRes, auditRes, commRes, scoresRes] = await Promise.all([
         client.get('/teacher/reports/revenue'),
         client.get('/teacher/reports/audit'),
-        client.get('/teacher/reports/communications')
+        client.get('/teacher/reports/communications'),
+        client.get('/teacher/scores/consolidated')
       ]);
       setRevenue(revRes.data);
       setAuditLogs(auditRes.data.logs || []);
       setCommLogs(commRes.data.logs || []);
+      const consolidatedData = scoresRes.data && typeof scoresRes.data === 'object' ? scoresRes.data : {};
+      setConsolidated(consolidatedData);
+      const batchNames = Object.keys(consolidatedData);
+      if (batchNames.length > 0) setScoresBatch((prev) => prev && consolidatedData[prev] ? prev : batchNames[0]);
     } catch (err) {
       console.error('Failed to fetch reports', err);
     } finally { setLoading(false); setRefreshing(false); }
@@ -58,11 +65,17 @@ export default function ReportsScreen() {
           >
             <Text style={[styles.tabText, { color: colors.fdd }, activeTab === 'Audit' && [styles.activeTabText, { color: colors.p }]]}>Audit Logs</Text>
           </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.tab, activeTab === 'Communications' && [styles.activeTab, { backgroundColor: isDark ? colors.bg2 : '#fff' }]]} 
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'Communications' && [styles.activeTab, { backgroundColor: isDark ? colors.bg2 : '#fff' }]]}
             onPress={() => setActiveTab('Communications')}
           >
             <Text style={[styles.tabText, { color: colors.fdd }, activeTab === 'Communications' && [styles.activeTabText, { color: colors.p }]]}>Comms</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'Scores' && [styles.activeTab, { backgroundColor: isDark ? colors.bg2 : '#fff' }]]}
+            onPress={() => setActiveTab('Scores')}
+          >
+            <Text style={[styles.tabText, { color: colors.fdd }, activeTab === 'Scores' && [styles.activeTabText, { color: colors.p }]]}>Scores</Text>
           </TouchableOpacity>
         </View>
 
@@ -125,6 +138,67 @@ export default function ReportsScreen() {
               </GlassCard>
             ))
           )
+        ) : activeTab === 'Scores' ? (
+          Object.keys(consolidated).length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <Text style={{ fontSize: 40 }}>📊</Text>
+              <Text style={[styles.emptyText, { color: colors.fdd }]}>No scores recorded yet.</Text>
+            </View>
+          ) : (
+            <View>
+              {/* Batch pills */}
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ paddingHorizontal: 12, marginBottom: 16 }}>
+                {Object.keys(consolidated).map((name) => (
+                  <TouchableOpacity key={name} onPress={() => setScoresBatch(name)}
+                    style={[styles.batchPill, { backgroundColor: isDark ? colors.bg2 : 'rgba(255,255,255,0.8)', borderColor: colors.b }, scoresBatch === name && { backgroundColor: colors.pm, borderColor: colors.pm }]}>
+                    <Text style={[styles.batchPillText, { color: colors.fdd }, scoresBatch === name && { color: '#fff' }]}>{name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              {scoresBatch && consolidated[scoresBatch] && (
+                <GlassCard style={[styles.revenueCard, { padding: 12 }]}>
+                  <ScrollView horizontal>
+                    <View>
+                      {/* Header row: test names */}
+                      <View style={{ flexDirection: 'row' }}>
+                        <View style={[styles.scoreNameCell, { borderColor: colors.b }]}>
+                          <Text style={[styles.scoreHeaderText, { color: colors.fdd }]}>STUDENT</Text>
+                        </View>
+                        {consolidated[scoresBatch].tests.map((t: any) => (
+                          <View key={t._id} style={[styles.scoreCell, { borderColor: colors.b }]}>
+                            <Text style={[styles.scoreHeaderText, { color: colors.fdd }]} numberOfLines={2}>
+                              {t.testName || t.subject}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                      {/* Student rows */}
+                      {consolidated[scoresBatch].students.map((s: any) => (
+                        <View key={s.studentId} style={{ flexDirection: 'row' }}>
+                          <View style={[styles.scoreNameCell, { borderColor: colors.b }]}>
+                            <Text style={[styles.scoreNameText, { color: colors.fg }]} numberOfLines={1}>{s.studentName}</Text>
+                          </View>
+                          {consolidated[scoresBatch].tests.map((t: any) => {
+                            const pct = s.scores?.[t._id];
+                            return (
+                              <View key={t._id} style={[styles.scoreCell, { borderColor: colors.b }]}>
+                                <Text style={[styles.scoreCellText, {
+                                  color: pct === undefined ? colors.fdd : pct >= 70 ? colors.gt : pct >= 40 ? '#d97706' : colors.rt
+                                }]}>
+                                  {pct === undefined ? '—' : `${Math.round(pct)}%`}
+                                </Text>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      ))}
+                    </View>
+                  </ScrollView>
+                </GlassCard>
+              )}
+            </View>
+          )
         ) : (
           commLogs.length === 0 ? (
             <View style={styles.emptyContainer}>
@@ -185,4 +259,13 @@ const styles = StyleSheet.create({
   
   emptyContainer: { justifyContent: 'center', alignItems: 'center', paddingTop: 60 },
   emptyText: { fontFamily: 'Inter_400Regular', fontSize: 15, marginTop: 12 },
+
+  // Consolidated scores
+  batchPill: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, marginHorizontal: 4 },
+  batchPillText: { fontFamily: 'SpaceMono_400Regular', fontSize: 12 },
+  scoreNameCell: { width: 120, paddingVertical: 10, paddingHorizontal: 8, borderWidth: 0.5, justifyContent: 'center' },
+  scoreCell: { width: 76, paddingVertical: 10, paddingHorizontal: 4, borderWidth: 0.5, alignItems: 'center', justifyContent: 'center' },
+  scoreHeaderText: { fontFamily: 'SpaceMono_700Bold', fontSize: 9, letterSpacing: 0.5, textAlign: 'center' },
+  scoreNameText: { fontFamily: 'Inter_600SemiBold', fontSize: 11 },
+  scoreCellText: { fontFamily: 'SpaceMono_700Bold', fontSize: 11 },
 });

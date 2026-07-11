@@ -5,6 +5,8 @@ import client from '../../api/client';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as DocumentPicker from 'expo-document-picker';
+import { File } from 'expo-file-system';
+import Papa from 'papaparse';
 import GlassCard from '../../components/GlassCard';
 import GlassInput from '../../components/GlassInput';
 import PremiumButton from '../../components/PremiumButton';
@@ -72,9 +74,12 @@ export default function StudentsScreen() {
     try {
       if (isEditing) {
         await client.put(`/teacher/students/${editingId}`, {
+          studentId,
           studentName,
+          email,
           mobileNo,
-          monthlyFee: Number(monthlyFee) || 0
+          monthlyFee: Number(monthlyFee) || 0,
+          ...(password.trim() ? { password: password.trim() } : {})
         });
         Alert.alert('Success', 'Student updated successfully!');
       } else {
@@ -101,15 +106,60 @@ export default function StudentsScreen() {
     }
   };
 
-  const handleBulkImport = () => {
-    Alert.alert(
-      'Web Feature Only', 
-      'Bulk Excel uploads are available on the web dashboard. Redirecting to web...',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Open Web', onPress: () => openSafeUrl('https://tuitionhub.vercel.app/login') }
-      ]
-    );
+  const handleBulkImport = async () => {
+    if (!selectedBatch) {
+      Alert.alert('Error', 'Select the batch to import students into first.');
+      return;
+    }
+    try {
+      const picked = await DocumentPicker.getDocumentAsync({
+        type: ['text/csv', 'text/comma-separated-values', 'text/plain'],
+        copyToCacheDirectory: true,
+      });
+      if (picked.canceled || !picked.assets?.[0]) return;
+
+      setImporting(true);
+      const csvText = await new File(picked.assets[0].uri).text();
+      const parsed = Papa.parse<Record<string, string>>(csvText, { header: true, skipEmptyLines: true });
+
+      const rows = parsed.data.map((r) => ({
+        studentName: r.studentName || r.name || '',
+        studentId: r.studentId || r.id || '',
+        mobileNo: r.mobileNo || r.mobile || '',
+        monthlyFee: Number(r.monthlyFee || r.fee) || 0,
+        email: r.email || '',
+        password: r.password || '',
+        batchId: selectedBatch,
+      })).filter((r) => r.studentName && r.studentId && r.mobileNo);
+
+      if (rows.length === 0) {
+        Alert.alert('Nothing to import', 'No valid rows found. The CSV needs studentName, studentId and mobileNo columns.');
+        return;
+      }
+
+      const res = await client.post('/teacher/students/bulk', rows);
+      if (res.data?.success === false) {
+        Alert.alert('Import failed', res.data.error || 'The server rejected the import.');
+        return;
+      }
+
+      const inserted = res.data?.inserted ?? rows.length;
+      const rowErrors: string[] = res.data?.errors || [];
+      if (rowErrors.length > 0) {
+        Alert.alert(
+          `Imported ${inserted} of ${rows.length}`,
+          `${rowErrors.length} row${rowErrors.length === 1 ? '' : 's'} skipped:\n${rowErrors.slice(0, 5).join('\n')}${rowErrors.length > 5 ? `\n…and ${rowErrors.length - 5} more` : ''}`
+        );
+      } else {
+        Alert.alert('Success', `Imported ${inserted} student${inserted === 1 ? '' : 's'} into this batch.`);
+      }
+      setRefreshing(true);
+      fetchStudents();
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.error || 'Failed to import CSV.');
+    } finally {
+      setImporting(false);
+    }
   };
 
   const openEditModal = (student: any) => {
@@ -118,6 +168,7 @@ export default function StudentsScreen() {
     setStudentId(student.studentId);
     setStudentName(student.studentName);
     setEmail(student.email || '');
+    setPassword('');
     setMobileNo(student.mobileNo || '');
     setMonthlyFee(student.monthlyFee ? student.monthlyFee.toString() : '');
     setShowModal(true);
@@ -161,6 +212,18 @@ export default function StudentsScreen() {
         }
       }}
     ]);
+  };
+
+  const handleToggleActive = async (student: any) => {
+    try {
+      const res = await client.post(`/teacher/students/${student._id}/toggle-active`);
+      const nowActive = res.data?.isActive;
+      setSelectedProfile((prev: any) => prev ? { ...prev, student: { ...prev.student, isActive: nowActive } } : prev);
+      setRefreshing(true);
+      fetchStudents();
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.error || 'Failed to toggle active status');
+    }
   };
 
   const openProfileModal = async (student: any) => {
@@ -239,6 +302,11 @@ export default function StudentsScreen() {
                   <Text style={[styles.studentName, { color: colors.fg }]}>{student.studentName}</Text>
                   <Text style={[styles.studentId, { color: colors.fdd }]}>{student.studentId} • {student.mobileNo}</Text>
                 </View>
+                {student.isActive === false && (
+                  <View style={styles.inactiveBadge}>
+                    <Text style={styles.inactiveBadgeText}>INACTIVE</Text>
+                  </View>
+                )}
                 <Ionicons name="pencil" size={18} color={colors.fdd} />
               </GlassCard>
             </TouchableOpacity>
@@ -282,6 +350,12 @@ export default function StudentsScreen() {
                     <TouchableOpacity onPress={() => openSafeUrl(`https://tuitionhub.vercel.app/login`)} style={[styles.actionBtn, { borderColor: colors.b, backgroundColor: isDark ? colors.bg2 : '#ffffff' }]}>
                       <Ionicons name="receipt" size={16} color={colors.p} />
                       <Text style={[styles.actionBtnText, { color: colors.p }]}>FEES</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => handleToggleActive(selectedProfile.student)} style={[styles.actionBtn, { borderColor: colors.b, backgroundColor: isDark ? colors.bg2 : '#ffffff' }]}>
+                      <Ionicons name={selectedProfile.student.isActive === false ? 'play' : 'pause'} size={16} color={selectedProfile.student.isActive === false ? colors.lt : colors.pt} />
+                      <Text style={[styles.actionBtnText, { color: selectedProfile.student.isActive === false ? colors.lt : colors.pt }]}>
+                        {selectedProfile.student.isActive === false ? 'ACTIVATE' : 'DEACTIVATE'}
+                      </Text>
                     </TouchableOpacity>
                     <TouchableOpacity onPress={() => handleDeleteStudent(selectedProfile.student._id)} style={[styles.actionBtn, { borderColor: 'rgba(220,38,38,0.2)', backgroundColor: isDark ? colors.bg2 : '#ffffff' }]}>
                       <Ionicons name="trash" size={16} color={colors.rt} />
@@ -362,17 +436,16 @@ export default function StudentsScreen() {
               <GlassInput value={studentName} onChangeText={setStudentName} placeholder="e.g. John Doe" />
 
               <Text style={[styles.fieldLabel, { color: colors.fdd }]}>STUDENT ID (Roll No)</Text>
-              <GlassInput style={[isEditing && { backgroundColor: isDark ? 'transparent' : 'rgba(12,12,12,0.05)' }]} value={studentId} onChangeText={setStudentId} editable={!isEditing} placeholder="e.g. STU1001" />
+              <GlassInput value={studentId} onChangeText={setStudentId} placeholder="e.g. STU1001" />
+
+              <Text style={[styles.fieldLabel, { color: colors.fdd }]}>EMAIL (Optional)</Text>
+              <GlassInput value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" placeholder="e.g. student@email.com" />
 
               <Text style={[styles.fieldLabel, { color: colors.fdd }]}>MOBILE NUMBER</Text>
               <GlassInput value={mobileNo} onChangeText={setMobileNo} keyboardType="phone-pad" placeholder="e.g. 9876543210" />
 
-              {!isEditing && (
-                <>
-                  <Text style={[styles.fieldLabel, { color: colors.fdd }]}>PASSWORD</Text>
-                  <GlassInput value={password} onChangeText={setPassword} placeholder="Setup a default password" secureTextEntry />
-                </>
-              )}
+              <Text style={[styles.fieldLabel, { color: colors.fdd }]}>{isEditing ? 'NEW PASSWORD (Optional)' : 'PASSWORD'}</Text>
+              <GlassInput value={password} onChangeText={setPassword} placeholder={isEditing ? 'Leave blank to keep current' : 'Setup a default password'} secureTextEntry />
 
               <Text style={[styles.fieldLabel, { color: colors.fdd }]}>MONTHLY FEE (₹)</Text>
               <GlassInput value={monthlyFee} onChangeText={setMonthlyFee} keyboardType="numeric" placeholder="e.g. 1500" />
@@ -418,7 +491,9 @@ const styles = StyleSheet.create({
   profileAvatar: { width: 80, height: 80, borderRadius: 40, marginBottom: 16, borderWidth: 3, borderColor: '#fff' },
   profileName: { fontFamily: 'Unbounded_700Bold', fontSize: 20, marginBottom: 4 },
   profileId: { fontFamily: 'SpaceMono_400Regular', fontSize: 12, letterSpacing: 1 },
-  actionRow: { flexDirection: 'row', gap: 10, marginTop: 20 },
+  actionRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 10, marginTop: 20 },
+  inactiveBadge: { backgroundColor: 'rgba(220,38,38,0.12)', borderWidth: 1, borderColor: 'rgba(220,38,38,0.30)', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, marginRight: 10 },
+  inactiveBadgeText: { fontFamily: 'SpaceMono_700Bold', fontSize: 9, color: '#dc2626', letterSpacing: 1 },
   actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, paddingVertical: 8, paddingHorizontal: 14, borderRadius: 20 },
   actionBtnText: { fontFamily: 'Unbounded_700Bold', fontSize: 10 },
   

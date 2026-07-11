@@ -2,8 +2,9 @@ import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
-// Uses the environment variable if provided, otherwise defaults to production
-const API_URL = process.env.EXPO_PUBLIC_CLASSCONNECT_API_URL || 'https://tuitionhub.vercel.app/api/v1';
+// Tuition Hub backend (auth, students, fees, attendance, etc.).
+// EXPO_PUBLIC_CLASSCONNECT_API_URL points to the separate Solutions Hub backend — see solutions.tsx.
+const API_URL = process.env.EXPO_PUBLIC_TUITIONHUB_API_URL || 'https://tuitionhub.vercel.app/api/v1';
 
 const client = axios.create({
   baseURL: API_URL,

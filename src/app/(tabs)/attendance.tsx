@@ -11,6 +11,12 @@ import PremiumButton from '../../components/PremiumButton';
 import { useTheme } from '../../context/ThemeContext';
 import { openSafeUrl } from '../../utils/safeLinking';
 
+// toISOString() converts to UTC first, so "today" near midnight can land on
+// the wrong calendar day for IST (UTC+5:30) users. Use local date parts instead,
+// matching how the web dashboard computes "today" for the same attendance record.
+const localDateKey = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
 export default function AttendanceScreen() {
   const { user } = useAuth();
   const [data, setData] = useState<any>(null);
@@ -34,6 +40,10 @@ export default function AttendanceScreen() {
   const [defaultersMonth, setDefaultersMonth] = useState((new Date().getMonth() + 1).toString());
   const [loadingDefaulters, setLoadingDefaulters] = useState(false);
   const [downloading, setDownloading] = useState(false);
+
+  // Detailed month-grid state (teacher)
+  const [showGrid, setShowGrid] = useState(false);
+  const [gridMonth, setGridMonth] = useState(new Date().getMonth()); // 0-11
   const { colors, isDark } = useTheme();
 
   const fetchAttendance = async () => {
@@ -61,7 +71,7 @@ export default function AttendanceScreen() {
 
   useEffect(() => {
     if (user?.role === 'teacher' && selectedBatch) {
-      const today = new Date().toISOString().split('T')[0];
+      const today = localDateKey(new Date());
       const todayAttendance = existingAttendance[today] || {};
       const marks: Record<string, 'P' | 'A' | null> = {};
       const batchStudents = students.filter(s => s.batch?._id === selectedBatch || s.batch === selectedBatch);
@@ -98,7 +108,7 @@ export default function AttendanceScreen() {
 
     setSaving(true);
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const today = localDateKey(new Date());
       await client.post('/teacher/attendance', {
         date: today,
         records,
@@ -228,7 +238,7 @@ export default function AttendanceScreen() {
           <Ionicons name="grid" size={18} color="#fff" />
           <Text style={styles.modeBtnText}>BULK ENTRY</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.modeBtn, { marginLeft: 8, backgroundColor: 'rgba(255,255,255,0.1)' }]} onPress={() => openSafeUrl('https://tuitionhub.vercel.app/login')}>
+        <TouchableOpacity style={[styles.modeBtn, { marginLeft: 8, backgroundColor: 'rgba(255,255,255,0.1)' }]} onPress={() => setShowGrid(true)}>
           <Ionicons name="calendar-outline" size={18} color="#fff" />
           <Text style={styles.modeBtnText}>FULL GRID</Text>
         </TouchableOpacity>
@@ -375,6 +385,103 @@ export default function AttendanceScreen() {
           </GlassCard>
         </View>
       </Modal>
+
+      {/* Detailed Month Grid */}
+      <Modal visible={showGrid} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <GlassCard style={[styles.modalContent, { maxHeight: '95%', height: '90%' }]} intensity={isDark ? 50 : 30}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Ionicons name="calendar" size={22} color={colors.p} style={{ marginRight: 8 }} />
+                <Text style={[styles.modalTitle, { color: colors.fg }]}>Detailed Attendance</Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowGrid(false)}>
+                <Ionicons name="close" size={24} color={colors.fdd} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12, flexGrow: 0, minHeight: 45 }}>
+              {Array.from({ length: 12 }).map((_, i) => {
+                const monthName = new Date(2000, i, 1).toLocaleString('default', { month: 'short' });
+                return (
+                  <TouchableOpacity key={i} onPress={() => setGridMonth(i)}
+                    style={[styles.monthPill, { backgroundColor: colors.bgc, borderColor: colors.b }, gridMonth === i && { backgroundColor: colors.pm, borderColor: colors.pm }]}>
+                    <Text style={[styles.monthPillText, { color: colors.fdd }, gridMonth === i && { color: '#fff' }]}>{monthName}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            {(() => {
+              // Parse the "YYYY-MM-DD" key directly instead of via `new Date(d)` — that
+              // parses as UTC midnight, and .getMonth()/.getDate() read back in local time,
+              // which shifts day-1 dates into the wrong month in timezones behind UTC.
+              const gridDates = Object.keys(existingAttendance)
+                .filter((d) => Number(d.slice(5, 7)) - 1 === gridMonth)
+                .sort();
+              if (gridDates.length === 0) {
+                return <View style={[styles.center, { backgroundColor: 'transparent' }]}><Text style={{ color: colors.fdd }}>No attendance records for this month.</Text></View>;
+              }
+              return (
+                <ScrollView horizontal style={{ flex: 1 }}>
+                  <ScrollView>
+                    <View>
+                      {/* Header row */}
+                      <View style={{ flexDirection: 'row' }}>
+                        <View style={[styles.gridNameCell, { borderColor: colors.b }]}>
+                          <Text style={[styles.gridHeaderText, { color: colors.fdd }]}>STUDENT</Text>
+                        </View>
+                        {gridDates.map((d) => (
+                          <View key={d} style={[styles.gridCell, { borderColor: colors.b }]}>
+                            <Text style={[styles.gridHeaderText, { color: colors.fdd }]}>{Number(d.slice(8, 10))}</Text>
+                          </View>
+                        ))}
+                        <View style={[styles.gridCell, { borderColor: colors.b, width: 52 }]}>
+                          <Text style={[styles.gridHeaderText, { color: colors.fdd }]}>%</Text>
+                        </View>
+                      </View>
+                      {/* Student rows */}
+                      {batchStudents.map((student) => {
+                        let present = 0, counted = 0;
+                        const cells = gridDates.map((d) => {
+                          const status = existingAttendance[d]?.[student.studentId] || '-';
+                          if (status === 'P') { present++; counted++; }
+                          if (status === 'A') counted++;
+                          return { d, status };
+                        });
+                        const pct = counted > 0 ? Math.round((present / counted) * 100) : null;
+                        return (
+                          <View key={student.studentId} style={{ flexDirection: 'row' }}>
+                            <View style={[styles.gridNameCell, { borderColor: colors.b }]}>
+                              <Text style={[styles.gridNameText, { color: colors.fg }]} numberOfLines={1}>{student.studentName}</Text>
+                            </View>
+                            {cells.map(({ d, status }) => (
+                              <View key={d} style={[styles.gridCell, { borderColor: colors.b },
+                                status === 'P' && { backgroundColor: 'rgba(5,150,105,0.18)' },
+                                status === 'A' && { backgroundColor: 'rgba(220,38,38,0.18)' },
+                                status === 'H' && { backgroundColor: 'rgba(217,119,6,0.18)' },
+                              ]}>
+                                <Text style={[styles.gridCellText, {
+                                  color: status === 'P' ? colors.gt : status === 'A' ? colors.rt : status === 'H' ? '#d97706' : colors.fdd
+                                }]}>{status}</Text>
+                              </View>
+                            ))}
+                            <View style={[styles.gridCell, { borderColor: colors.b, width: 52 }]}>
+                              <Text style={[styles.gridCellText, { color: pct !== null && pct < 75 ? colors.rt : colors.gt }]}>
+                                {pct === null ? '—' : `${pct}%`}
+                              </Text>
+                            </View>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </ScrollView>
+                </ScrollView>
+              );
+            })()}
+          </GlassCard>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -394,6 +501,13 @@ const styles = StyleSheet.create({
   calHeaderText: { fontFamily: 'SpaceMono_700Bold', fontSize: 11 },
   calCell: { width: '14.28%', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 8, marginVertical: 2 },
   calDayText: { fontFamily: 'Inter_600SemiBold', fontSize: 14 },
+  // Detailed grid
+  gridNameCell: { width: 120, paddingVertical: 10, paddingHorizontal: 8, borderWidth: 0.5, justifyContent: 'center' },
+  gridCell: { width: 38, paddingVertical: 10, borderWidth: 0.5, alignItems: 'center', justifyContent: 'center' },
+  gridHeaderText: { fontFamily: 'SpaceMono_700Bold', fontSize: 9, letterSpacing: 0.5 },
+  gridNameText: { fontFamily: 'Inter_600SemiBold', fontSize: 11 },
+  gridCellText: { fontFamily: 'SpaceMono_700Bold', fontSize: 10 },
+
   legend: { flexDirection: 'row', justifyContent: 'center', gap: 16, marginBottom: 24 },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   legendDot: { width: 12, height: 12, borderRadius: 6 },

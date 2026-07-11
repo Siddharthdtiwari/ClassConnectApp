@@ -22,6 +22,7 @@ export default function ContentScreen() {
   const [batches, setBatches] = useState<any[]>([]);
   const [selectedBatch, setSelectedBatch] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [editingMaterial, setEditingMaterial] = useState<any>(null);
 
   // Form State
   const [subject, setSubject] = useState('');
@@ -51,8 +52,27 @@ export default function ContentScreen() {
 
   useEffect(() => { fetchContent(); }, []);
 
-  const handleAddMaterial = async () => {
-    if (!subject || (!link && !materialFile)) {
+  const resetForm = () => {
+    setSubject('');
+    setDescription('');
+    setLink('');
+    setMaterialFile(null);
+    setMaterialType('Note');
+    setEditingMaterial(null);
+  };
+
+  const openEditModal = (material: any) => {
+    setEditingMaterial(material);
+    setSubject(material.subject || '');
+    setMaterialType(material.materialType || 'Note');
+    setDescription(material.description || '');
+    setLink('');
+    setMaterialFile(null);
+    setShowModal(true);
+  };
+
+  const handleSaveMaterial = async () => {
+    if (!subject || (!editingMaterial && !link && !materialFile)) {
       Alert.alert('Error', 'Subject and either a Link or a File are required.');
       return;
     }
@@ -65,7 +85,7 @@ export default function ContentScreen() {
       formData.append('materialType', materialType);
       formData.append('description', description);
       if (link) formData.append('link', link);
-      
+
       if (materialFile) {
         formData.append('file', {
           uri: materialFile.uri,
@@ -74,25 +94,46 @@ export default function ContentScreen() {
         } as any);
       }
 
-      await client.post('/teacher/materials', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-      Alert.alert('Success', 'Study material shared successfully!');
+      if (editingMaterial) {
+        await client.put(`/teacher/materials/${editingMaterial._id}`, formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        Alert.alert('Success', 'Study material updated!');
+      } else {
+        await client.post('/teacher/materials', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        Alert.alert('Success', 'Study material shared successfully!');
+      }
       setShowModal(false);
-      
-      // Reset form
-      setSubject('');
-      setDescription('');
-      setLink('');
-      setMaterialFile(null);
-      
+      resetForm();
       setRefreshing(true);
       fetchContent();
     } catch (err: any) {
-      Alert.alert('Error', err.response?.data?.error || 'Failed to add study material');
+      Alert.alert('Error', err.response?.data?.message || err.response?.data?.error || 'Failed to save study material');
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleRepostMaterial = (material: any) => {
+    Alert.alert(
+      'Repost to current year',
+      `Copy "${material.subject}" into the matching batch of the current academic year?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Repost', onPress: async () => {
+          try {
+            const res = await client.post(`/teacher/materials/repost-single/${material._id}`);
+            Alert.alert('Success', res.data?.message || 'Material reposted.');
+            setRefreshing(true);
+            fetchContent();
+          } catch (err: any) {
+            Alert.alert('Error', err.response?.data?.message || 'Failed to repost material.');
+          }
+        }}
+      ]
+    );
   };
 
   const handleDeleteMaterial = async (id: string) => {
@@ -149,7 +190,7 @@ export default function ContentScreen() {
               <Text style={styles.teacherBannerTitle}>Study Materials</Text>
               <Text style={styles.teacherBannerSub}>Share resources & links</Text>
             </View>
-            <TouchableOpacity onPress={() => setShowModal(true)} style={[styles.addBtn, { backgroundColor: colors.bgc }]}>
+            <TouchableOpacity onPress={() => { resetForm(); setShowModal(true); }} style={[styles.addBtn, { backgroundColor: colors.bgc }]}>
               <Ionicons name="add" size={24} color={colors.pm} />
             </TouchableOpacity>
           </LinearGradient>
@@ -204,9 +245,17 @@ export default function ContentScreen() {
                   <Text style={[styles.materialDate, { color: colors.fdd }]}>{new Date(material.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</Text>
                 </View>
                 {user?.role === 'teacher' ? (
-                  <TouchableOpacity onPress={() => handleDeleteMaterial(material._id)} style={{ padding: 10 }}>
-                    <Ionicons name="trash" size={20} color={colors.rt} />
-                  </TouchableOpacity>
+                  <View style={{ flexDirection: 'row' }}>
+                    <TouchableOpacity onPress={() => openEditModal(material)} style={{ padding: 8 }}>
+                      <Ionicons name="pencil" size={19} color={colors.p} />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => handleRepostMaterial(material)} style={{ padding: 8 }}>
+                      <Ionicons name="refresh-circle-outline" size={21} color={colors.pm} />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => handleDeleteMaterial(material._id)} style={{ padding: 8 }}>
+                      <Ionicons name="trash" size={19} color={colors.rt} />
+                    </TouchableOpacity>
+                  </View>
                 ) : (
                   <Ionicons name="open-outline" size={20} color={colors.fdd} />
                 )}
@@ -221,7 +270,7 @@ export default function ContentScreen() {
           <View style={styles.modalOverlay}>
             <GlassCard style={styles.modalContent} intensity={isDark ? 50 : 30}>
               <View style={styles.modalHeader}>
-                <Text style={[styles.modalTitle, { color: colors.fg }]}>Share Resource</Text>
+                <Text style={[styles.modalTitle, { color: colors.fg }]}>{editingMaterial ? 'Edit Resource' : 'Share Resource'}</Text>
                 <TouchableOpacity onPress={() => setShowModal(false)}>
                   <Ionicons name="close" size={24} color={colors.fdd} />
                 </TouchableOpacity>
@@ -240,7 +289,9 @@ export default function ContentScreen() {
                 ))}
               </View>
 
-              <Text style={[styles.fieldLabel, { color: colors.fdd }]}>RESOURCE LINK OR FILE UPLOAD</Text>
+              <Text style={[styles.fieldLabel, { color: colors.fdd }]}>
+                {editingMaterial ? 'REPLACE FILE/LINK (Optional — leave empty to keep current)' : 'RESOURCE LINK OR FILE UPLOAD'}
+              </Text>
               
               <TouchableOpacity onPress={async () => {
                 try {
@@ -259,8 +310,8 @@ export default function ContentScreen() {
               <GlassInput value={description} onChangeText={setDescription} placeholder="Brief details about this resource" />
 
               <PremiumButton
-                title="SHARE WITH CLASS"
-                onPress={handleAddMaterial}
+                title={editingMaterial ? 'SAVE CHANGES' : 'SHARE WITH CLASS'}
+                onPress={handleSaveMaterial}
                 loading={saving}
                 style={{ marginTop: 16 }}
               />

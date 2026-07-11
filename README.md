@@ -1,6 +1,24 @@
-# Welcome to your Expo app 👋
+# ClassConnect Mobile App
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+The [Expo](https://expo.dev) / React Native companion app for ClassConnect — a management system for coaching institutes. Teachers manage students, batches, attendance, fees, tests, timetables, and study material; students view their dashboard, scores, attendance, fees, and the leaderboard.
+
+## Backends
+
+The app talks to **two separate backends**:
+
+| Env variable | Default | Used for |
+| --- | --- | --- |
+| `EXPO_PUBLIC_TUITIONHUB_API_URL` | `https://tuitionhub.vercel.app/api/v1` | Everything authenticated: login, students, batches, attendance, fees, tests, reports (the Tuition Hub server) |
+| `EXPO_PUBLIC_CLASSCONNECT_API_URL` | `https://classconnects.vercel.app/api` | The public Solutions Hub tab (the ClassConnect SaaS server) |
+
+Both are optional — the production defaults above are used when unset. To point at a local backend, set them in `.env`:
+
+```env
+EXPO_PUBLIC_TUITIONHUB_API_URL=http://localhost:3000/api/v1
+EXPO_PUBLIC_CLASSCONNECT_API_URL=https://classconnects.vercel.app/api
+```
+
+> Note: these are two different servers. Do not point both variables at the same host.
 
 ## Get started
 
@@ -16,43 +34,23 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npx expo start
    ```
 
-In the output, you'll find options to open the app in a
+Open it in a [development build](https://docs.expo.dev/develop/development-builds/introduction/), an [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/), an [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/), or [Expo Go](https://expo.dev/go).
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+## Project structure
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+- `src/app/` — screens, using [Expo Router](https://docs.expo.dev/router/introduction) file-based routing
+  - `index.tsx` — login (student / teacher)
+  - `(tabs)/` — the main app: dashboard, students, attendance, fees, tests, timetable, syllabus, content, reports, solutions, and more
+- `src/api/client.ts` — axios client for the Tuition Hub API (attaches the JWT from SecureStore / localStorage)
+- `src/context/` — auth and theme providers
+- `src/components/` — shared UI (glass cards, inputs, buttons, background decor)
 
-## Get a fresh project
+## Auth
 
-When you're ready, run:
+Login posts to `/auth/student/login` or `/auth/teacher/login` on the Tuition Hub API and stores the returned JWT in `expo-secure-store` (native) or `localStorage` (web). The token is attached as a `Bearer` header on every request.
+
+## Type checking
 
 ```bash
-npm run reset-project
+npx tsc --noEmit
 ```
-
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
-
-### Other setup steps
-
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
-
- 

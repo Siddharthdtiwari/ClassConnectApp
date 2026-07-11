@@ -5,6 +5,7 @@ import client from '../../api/client';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as DocumentPicker from 'expo-document-picker';
+import { WebView } from 'react-native-webview';
 import GlassCard from '../../components/GlassCard';
 import PremiumButton from '../../components/PremiumButton';
 import GlassInput from '../../components/GlassInput';
@@ -31,6 +32,8 @@ export default function TestsScreen() {
   const [showAiModal, setShowAiModal] = useState(false);
   const [aiTopic, setAiTopic] = useState('');
   const [aiDifficulty, setAiDifficulty] = useState('Medium');
+  const [aiContext, setAiContext] = useState('');
+  const [aiMarks, setAiMarks] = useState('20');
   const [generating, setGenerating] = useState(false);
   const [showPaperViewer, setShowPaperViewer] = useState(false);
   const [generatedPaper, setGeneratedPaper] = useState('');
@@ -124,22 +127,27 @@ export default function TestsScreen() {
   };
 
   const handleAiGenerate = async () => {
-    if (!subject || !aiTopic) {
-      Alert.alert('Error', 'Subject and Topic are required.');
+    if (!subject || !aiContext.trim()) {
+      Alert.alert('Error', 'Subject and textbook context are required — paste the chapter text or questions the paper should be based on.');
       return;
     }
     setGenerating(true);
     try {
+      const batchName = batches.find(b => b._id === selectedBatch)?.name || '';
       const res = await client.post('/teacher/ai/generate_paper', {
+        contextText: aiContext,
         subject,
         topic: aiTopic,
-        difficulty: aiDifficulty
+        totalMarks: aiMarks,
+        batchName,
+        testDate: new Date().toLocaleDateString('en-IN'),
+        instructions: `Difficulty level: ${aiDifficulty}`,
       });
-      setGeneratedPaper(res.data.paperContent);
+      setGeneratedPaper(res.data.html || '');
       setShowAiModal(false);
       setShowPaperViewer(true);
-    } catch (err) {
-      Alert.alert('Error', 'Failed to generate paper');
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.message || 'Failed to generate paper');
     } finally {
       setGenerating(false);
     }
@@ -484,6 +492,19 @@ export default function TestsScreen() {
               <Text style={[styles.fieldLabel, { color: colors.fdd }]}>TOPIC / CHAPTERS</Text>
               <GlassInput value={aiTopic} onChangeText={setAiTopic} placeholder="e.g. Thermodynamics, Light" />
 
+              <Text style={[styles.fieldLabel, { color: colors.fdd }]}>TOTAL MARKS</Text>
+              <GlassInput value={aiMarks} onChangeText={setAiMarks} keyboardType="number-pad" placeholder="e.g. 20" />
+
+              <Text style={[styles.fieldLabel, { color: colors.fdd }]}>TEXTBOOK CONTEXT (paste chapter text / questions)</Text>
+              <GlassInput
+                value={aiContext}
+                onChangeText={setAiContext}
+                placeholder="Paste the textbook excerpt or question bank the AI should draw from..."
+                multiline
+                numberOfLines={5}
+                style={{ minHeight: 110, textAlignVertical: 'top' }}
+              />
+
               <Text style={[styles.fieldLabel, { color: colors.fdd }]}>DIFFICULTY</Text>
               <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
                 {['Easy', 'Medium', 'Hard'].map(d => (
@@ -563,11 +584,19 @@ export default function TestsScreen() {
               <Ionicons name="close" size={24} color={colors.fg} />
             </TouchableOpacity>
           </View>
-          <ScrollView style={styles.viewerScroll}>
-            <View style={[styles.paperContentBox, { backgroundColor: colors.bg2, borderColor: colors.b }]}>
-              <Text style={[styles.viewerText, { color: colors.fg }]}>{generatedPaper}</Text>
-            </View>
-          </ScrollView>
+          {Platform.OS === 'web' ? (
+            <ScrollView style={styles.viewerScroll}>
+              <View style={[styles.paperContentBox, { backgroundColor: colors.bg2, borderColor: colors.b }]}>
+                <Text style={[styles.viewerText, { color: colors.fg }]}>{generatedPaper.replace(/<[^>]+>/g, '')}</Text>
+              </View>
+            </ScrollView>
+          ) : (
+            <WebView
+              originWhitelist={['*']}
+              source={{ html: `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="margin:16px;background:#fff">${generatedPaper}</body></html>` }}
+              style={{ flex: 1 }}
+            />
+          )}
         </View>
       </Modal>
     </View>

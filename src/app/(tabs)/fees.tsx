@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, RefreshControl, TouchableOpacity, TextInput, Alert, Modal, Linking } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, RefreshControl, TouchableOpacity, TextInput, Alert, Modal, Linking, Platform } from 'react-native';
+import { useRouter } from 'expo-router';
+import { WebView } from 'react-native-webview';
 import { useAuth } from '../../context/AuthContext';
 import client from '../../api/client';
 import { Ionicons } from '@expo/vector-icons';
@@ -9,9 +11,9 @@ import PremiumButton from '../../components/PremiumButton';
 import GlassInput from '../../components/GlassInput';
 import { useTheme } from '../../context/ThemeContext';
 import { openSafeUrl } from '../../utils/safeLinking';
-const router = require('expo-router').useRouter();
 
 export default function FeesScreen() {
+  const router = useRouter();
   const { user } = useAuth();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -34,6 +36,10 @@ export default function FeesScreen() {
   const [defaultersMonth, setDefaultersMonth] = useState('January');
   const [loadingDefaulters, setLoadingDefaulters] = useState(false);
   const [downloading, setDownloading] = useState(false);
+
+  // Student online payment (Razorpay) state
+  const [paying, setPaying] = useState(false);
+  const [checkout, setCheckout] = useState<null | { orderId: string; keyId: string; amountPaise: number; amountRupees: number }>(null);
   const { colors, isDark } = useTheme();
 
   const months = ['May','June','July','August','September','October','November','December','January','February','March','April'];
@@ -60,7 +66,7 @@ export default function FeesScreen() {
 
   const openPaymentModal = (student: any) => {
     setSelectedStudent(student);
-    setFeeAmount(String(student.totalDue > 0 ? Math.round(student.totalDue / (student.totalDue / (data?.report?.[0]?.totalDue / data?.report?.length || 1000))) : ''));
+    setFeeAmount('');
     setFeeMonth('');
     setFeeYear(String(new Date().getFullYear()));
     setFeeMethod('Cash');
@@ -75,9 +81,9 @@ export default function FeesScreen() {
 
     setSaving(true);
     try {
+      // The server records the fee against the student's own batch.
       await client.post('/teacher/fees', {
         studentId: selectedStudent._id,
-        batchId: selectedBatch,
         amount: Number(feeAmount),
         month: feeMonth,
         year: Number(feeYear),
@@ -120,6 +126,74 @@ export default function FeesScreen() {
     );
   };
 
+  // ─── Student online payment (Razorpay checkout inside a WebView) ───
+  const startOnlinePayment = async (amountRupees: number) => {
+    if (Platform.OS === 'web') {
+      Alert.alert('Use the web portal', 'Online payment on the web runs at tuitionhub.vercel.app — log in there to pay.');
+      return;
+    }
+    setPaying(true);
+    try {
+      const res = await client.post('/student/fees/create-order', { amount: amountRupees });
+      const order = res.data;
+      if (!order?.id || !order?.key_id) throw new Error('Order creation failed');
+      setCheckout({ orderId: order.id, keyId: order.key_id, amountPaise: order.amount, amountRupees });
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.error || 'Could not start the payment. Try again.');
+    } finally {
+      setPaying(false);
+    }
+  };
+
+  const onCheckoutMessage = async (event: any) => {
+    let msg: any = {};
+    try { msg = JSON.parse(event.nativeEvent.data); } catch { return; }
+
+    if (msg.type === 'success') {
+      const amountRupees = checkout?.amountRupees;
+      setCheckout(null);
+      try {
+        await client.post('/student/fees/verify-payment', {
+          razorpay_order_id: msg.data.razorpay_order_id,
+          razorpay_payment_id: msg.data.razorpay_payment_id,
+          razorpay_signature: msg.data.razorpay_signature,
+          amount: amountRupees,
+        });
+        Alert.alert('Payment successful 🎉', 'Your fee payment has been verified and recorded.');
+        setRefreshing(true);
+        fetchFees();
+      } catch (err: any) {
+        Alert.alert('Verification failed', err.response?.data?.error || 'Payment was made but could not be verified. Contact your teacher.');
+      }
+    } else if (msg.type === 'failed') {
+      setCheckout(null);
+      Alert.alert('Payment failed', msg.error?.description || 'The payment did not go through.');
+    } else if (msg.type === 'dismiss') {
+      setCheckout(null);
+    }
+  };
+
+  const checkoutHtml = checkout ? `<!DOCTYPE html><html><head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</head><body style="background:${isDark ? '#0b0b12' : '#f4f1fa'}">
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+<script>
+  var rzp = new Razorpay({
+    key: ${JSON.stringify(checkout.keyId)},
+    order_id: ${JSON.stringify(checkout.orderId)},
+    amount: ${JSON.stringify(checkout.amountPaise)},
+    currency: 'INR',
+    name: 'Tuition Hub',
+    description: 'Tuition fee payment',
+    prefill: { name: ${JSON.stringify(user?.name || '')} },
+    theme: { color: '#5d3a9b' },
+    handler: function (resp) { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'success', data: resp })); },
+    modal: { ondismiss: function () { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'dismiss' })); } }
+  });
+  rzp.on('payment.failed', function (resp) { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'failed', error: resp.error })); });
+  rzp.open();
+</script></body></html>` : '';
+
   if (loading) return <View style={[styles.center, { backgroundColor: 'transparent' }]}><ActivityIndicator size="large" color={colors.p} /></View>;
 
   // ─── STUDENT VIEW ───
@@ -134,6 +208,14 @@ export default function FeesScreen() {
           <GlassCard style={[styles.dueCard, { backgroundColor: colors.rt }]}>
             <Text style={styles.dueLabel}>TOTAL DUE</Text>
             <Text style={styles.dueAmount}>₹{totalDue.toLocaleString()}</Text>
+            <TouchableOpacity style={styles.payOnlineBtn} onPress={() => startOnlinePayment(totalDue)} disabled={paying} activeOpacity={0.85}>
+              {paying ? <ActivityIndicator size="small" color={colors.rt} /> : (
+                <>
+                  <Ionicons name="flash" size={16} color="#dc2626" />
+                  <Text style={styles.payOnlineBtnText}>PAY ONLINE NOW</Text>
+                </>
+              )}
+            </TouchableOpacity>
           </GlassCard>
         ) : (
           <GlassCard style={styles.clearCard}>
@@ -165,13 +247,31 @@ export default function FeesScreen() {
           ))}
         </GlassCard>
       </ScrollView>
+
+      {/* Razorpay Checkout */}
+      <Modal visible={!!checkout} animationType="slide" onRequestClose={() => setCheckout(null)}>
+        <View style={{ flex: 1, backgroundColor: isDark ? '#0b0b12' : '#f4f1fa' }}>
+          <TouchableOpacity style={styles.checkoutClose} onPress={() => setCheckout(null)}>
+            <Ionicons name="close" size={26} color={isDark ? '#fff' : '#111'} />
+          </TouchableOpacity>
+          {checkout && (
+            <WebView
+              originWhitelist={['*']}
+              source={{ html: checkoutHtml, baseUrl: 'https://tuitionhub.vercel.app' }}
+              onMessage={onCheckoutMessage}
+              javaScriptEnabled
+              domStorageEnabled
+              style={{ flex: 1, backgroundColor: 'transparent' }}
+            />
+          )}
+        </View>
+      </Modal>
       </View>
     );
   }
 
   // ─── TEACHER VIEW — INTERACTIVE FEE COLLECTION ───
   const report = data?.report || [];
-  const filteredReport = selectedBatch
   const selectedBatchName = batches.find(b => b._id === selectedBatch)?.name;
 
   return (
@@ -342,6 +442,9 @@ const styles = StyleSheet.create({
   dueLabel: { fontFamily: 'SpaceMono_700Bold', fontSize: 10, color: '#FCA5A5', letterSpacing: 2 },
   dueAmount: { fontFamily: 'Unbounded_900Black', fontSize: 32, color: '#fff', marginTop: 8 },
   clearCard: { borderWidth: 1, borderColor: 'rgba(5,150,105,0.30)', margin: 16, padding: 24, borderRadius: 20, alignItems: 'center' },
+  payOnlineBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#fff', borderRadius: 14, paddingVertical: 12, paddingHorizontal: 24, marginTop: 16 },
+  payOnlineBtnText: { fontFamily: 'Unbounded_700Bold', fontSize: 12, color: '#dc2626', letterSpacing: 1 },
+  checkoutClose: { position: 'absolute', top: 54, right: 20, zIndex: 10, width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(128,128,128,0.25)', justifyContent: 'center', alignItems: 'center' },
   clearText: { fontFamily: 'Unbounded_700Bold', fontSize: 14, marginTop: 12 },
   feeRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(12,12,12,0.05)' },
   feeMonth: { fontFamily: 'Inter_600SemiBold', fontSize: 14 },
