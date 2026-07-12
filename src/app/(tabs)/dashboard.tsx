@@ -326,19 +326,19 @@ const styles = StyleSheet.create({
   bannerSub: { fontFamily: 'SpaceMono_400Regular', fontSize: 11, color: 'rgba(255,255,255,0.70)', marginTop: 12, letterSpacing: 2, textTransform: 'uppercase' },
 
   // Profile Card
-  profileCard: { flexDirection: 'row', alignItems: 'center', padding: 20, elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 12 },
-  profileAvatar: { width: 56, height: 56, borderRadius: 28, justifyContent: 'center', alignItems: 'center', borderWidth: 2 },
+  profileCard: { flexDirection: 'row', alignItems: 'center', padding: 24, elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 12 },
+  profileAvatar: { width: 60, height: 60, borderRadius: 30, justifyContent: 'center', alignItems: 'center', borderWidth: 2 },
   profileAvatarText: { fontFamily: 'Unbounded_900Black', fontSize: 22 },
-  profileName: { fontFamily: 'Unbounded_700Bold', fontSize: 16 },
-  profileBadge: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: 12, borderWidth: 1 },
+  profileName: { fontFamily: 'Unbounded_700Bold', fontSize: 17, lineHeight: 22 },
+  profileBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1 },
   profileBadgeText: { fontFamily: 'SpaceMono_700Bold', fontSize: 10, letterSpacing: 1, textTransform: 'uppercase' },
-  profileMeta: { fontFamily: 'SpaceMono_400Regular', fontSize: 11, marginTop: 4 },
+  profileMeta: { fontFamily: 'SpaceMono_400Regular', fontSize: 11, marginTop: 8 },
 
-  metricsRow: { flexDirection: 'row', paddingHorizontal: 16, marginTop: 12, marginBottom: 8, gap: 10 },
-  statBox: { flex: 1, padding: 14, alignItems: 'center' },
-  statLabel: { fontFamily: 'SpaceMono_400Regular', fontSize: 9, letterSpacing: 2 },
-  statValue: { fontFamily: 'Unbounded_900Black', fontSize: 22, marginTop: 6 },
-  statDetail: { fontFamily: 'SpaceMono_400Regular', fontSize: 9, marginTop: 4, letterSpacing: 1 },
+  metricsRow: { flexDirection: 'row', paddingHorizontal: 16, marginTop: 16, marginBottom: 8, gap: 12 },
+  statBox: { flex: 1, padding: 18, alignItems: 'center' },
+  statLabel: { fontFamily: 'SpaceMono_400Regular', fontSize: 9, letterSpacing: 1.5 },
+  statValue: { fontFamily: 'Unbounded_900Black', fontSize: 22, marginTop: 8 },
+  statDetail: { fontFamily: 'SpaceMono_400Regular', fontSize: 9, marginTop: 6, letterSpacing: 1 },
 
   // Performance Trend
   trendLabel: { fontFamily: 'Inter_500Medium', fontSize: 12, flex: 1, marginRight: 8 },
@@ -347,9 +347,9 @@ const styles = StyleSheet.create({
   trendBar: { height: 6, borderRadius: 3 },
 
   // Quick Actions
-  actionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  actionTile: { width: '30%', flexGrow: 1, alignItems: 'center', paddingVertical: 16, borderRadius: 14, borderWidth: 1 },
-  actionIconWrap: { width: 44, height: 44, borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
+  actionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  actionTile: { width: '30%', flexGrow: 1, alignItems: 'center', paddingVertical: 18, borderRadius: 16, borderWidth: 1 },
+  actionIconWrap: { width: 46, height: 46, borderRadius: 15, justifyContent: 'center', alignItems: 'center', marginBottom: 10 },
   actionLabel: { fontFamily: 'Inter_600SemiBold', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 },
 
   // Grade Badge

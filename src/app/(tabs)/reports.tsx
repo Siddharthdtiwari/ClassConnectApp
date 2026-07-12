@@ -133,7 +133,7 @@ export default function ReportsScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.actionText, { color: colors.fg }]}>{log.action} {log.entityType}</Text>
                   <Text style={[styles.detailsText, { color: colors.fdd }]}>{log.details}</Text>
-                  <Text style={[styles.dateText, { color: colors.fdd }]}>{new Date(log.createdAt).toLocaleString()}</Text>
+                  <Text style={[styles.dateText, { color: colors.fdd }]}>{new Date(log.createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</Text>
                 </View>
               </GlassCard>
             ))

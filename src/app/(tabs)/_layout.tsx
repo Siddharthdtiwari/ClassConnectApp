@@ -3,7 +3,11 @@ import { useAuth } from '../../context/AuthContext';
 import { Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
+import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
 import { useTheme } from '../../context/ThemeContext';
+
+// See components/GlassCard.tsx for why this is safe to compute once at module scope.
+const NATIVE_GLASS_AVAILABLE = Platform.OS === 'ios' && isGlassEffectAPIAvailable();
 
 export default function TabsLayout() {
   const { user } = useAuth();
@@ -14,9 +18,23 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
+        // React Navigation's tab navigator wraps every screen in its own scene
+        // container with its own default (light gray) background, independent of
+        // this app's ThemeContext — that opaque layer sat in front of the shared
+        // BackgroundDecor/dark background for every single tab, hiding it completely.
+        // Must stay OPAQUE though (not 'transparent'): the navigator hides inactive
+        // tabs by giving them a negative zIndex, which doesn't reliably push a screen
+        // behind its sibling on web — each screen's own opaque background is what
+        // actually masks the other (inactive) screens stacked underneath it. Making
+        // this transparent let every tab's content render visibly on top of each other
+        // at once. Using colors.bg here fixes the theme color without losing that mask.
+        sceneStyle: { backgroundColor: colors.bg },
         tabBarStyle: {
-          backgroundColor: isDark ? 'rgba(5, 5, 10, 0.7)' : 'rgba(255, 255, 255, 0.8)',
-          borderTopWidth: 1,
+          // Real Liquid Glass draws its own edge via refraction, not a flat hairline —
+          // a 1px border on top of it looks like a seam. Keep the border for the
+          // BlurView fallback, where it still helps define the tab bar's edge.
+          backgroundColor: NATIVE_GLASS_AVAILABLE ? 'transparent' : (isDark ? 'rgba(5, 5, 10, 0.7)' : 'rgba(255, 255, 255, 0.8)'),
+          borderTopWidth: NATIVE_GLASS_AVAILABLE ? 0 : 1,
           borderTopColor: colors.b,
           position: 'absolute',
           bottom: 0,
@@ -28,7 +46,17 @@ export default function TabsLayout() {
           elevation: 0,
         },
         tabBarBackground: () => (
-          <BlurView tint={isDark ? 'dark' : 'light'} intensity={30} style={{ flex: 1 }} />
+          NATIVE_GLASS_AVAILABLE
+            ? <GlassView glassEffectStyle="regular" colorScheme={isDark ? 'dark' : 'light'} style={{ flex: 1 }} />
+            : (
+              <BlurView
+                tint={isDark ? 'dark' : 'light'}
+                intensity={30}
+                // See GlassCard.tsx — Android's blur is a flat tint unless this is set explicitly.
+                blurMethod={Platform.OS === 'android' ? 'dimezisBlurViewSdk31Plus' : undefined}
+                style={{ flex: 1 }}
+              />
+            )
         ),
         tabBarActiveTintColor: colors.pt,
         tabBarInactiveTintColor: colors.fdd,

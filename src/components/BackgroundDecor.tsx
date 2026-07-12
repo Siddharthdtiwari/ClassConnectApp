@@ -6,7 +6,7 @@ import { useTheme } from '../context/ThemeContext';
 const { width, height } = Dimensions.get('window');
 
 export default function BackgroundDecor() {
-  const { colors, isDark } = useTheme();
+  const { isDark } = useTheme();
 
   const orb1X = useSharedValue(0);
   const orb1Y = useSharedValue(0);
@@ -73,7 +73,12 @@ export default function BackgroundDecor() {
   });
 
   return (
-    <View style={[StyleSheet.absoluteFill as any, { backgroundColor: colors.bg, zIndex: -1, overflow: 'hidden' }]}>
+    // No z-index trick: relies on being mounted before <Slot /> in _layout.tsx so it
+    // paints first (behind screen content) in normal DOM/paint order. A negative
+    // zIndex here previously pushed this behind the page's own white canvas on web,
+    // instead of just behind its sibling — which is what caused the dark-mode background
+    // to never actually render (RootLayoutNav's own backgroundColor now covers that).
+    <View style={[StyleSheet.absoluteFill as any, { overflow: 'hidden' }]} pointerEvents="none">
       {/* Orb 1 */}
       <Animated.View
         style={[

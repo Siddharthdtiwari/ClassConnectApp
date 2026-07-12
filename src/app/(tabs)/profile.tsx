@@ -27,20 +27,33 @@ export default function ProfileScreen() {
   const fetchProfile = async () => {
     try {
       if (user?.role === 'student') {
-        // Use the dashboard endpoint which always works and contains student info
-        const response = await client.get('/student/dashboard');
-        const d = response.data;
+        // Fetch dashboard and profile independently so a failure in one doesn't
+        // discard data from the other. Dashboard has rank/attendance/points;
+        // profile has email/mobileNo/monthlyFee.
+        const [dashRes, profileRes] = await Promise.allSettled([
+          client.get('/student/dashboard'),
+          client.get('/student/profile'),
+        ]);
+
+        const d = dashRes.status === 'fulfilled' ? dashRes.value.data : null;
+        const p = profileRes.status === 'fulfilled' ? profileRes.value.data : null;
+
+        // monthlyFee lives on the User document (from /student/profile).
+        // Fall back to batch.monthlyFee if the profile call failed (it won't
+        // exist on the Batch schema but the fee screen has it from the User).
+        const monthlyFee = p?.monthlyFee ?? d?.student?.batch?.monthlyFee ?? null;
+
         setProfile({
-          name: d.student?.name,
-          studentId: d.student?.studentId,
-          email: user?.email || '',
-          mobileNo: user?.mobileNo || '',
-          batch: d.student?.batch,
-          points: d.student?.points || 0,
-          monthlyFee: user?.monthlyFee || 0,
-          rank: d.student?.rank,
-          profilePhoto: d.student?.profilePhoto,
-          attendance: d.metrics?.attendancePercentage,
+          name: d?.student?.name,
+          studentId: d?.student?.studentId,
+          email: p?.email || '',
+          mobileNo: p?.mobileNo || '',
+          batch: d?.student?.batch,
+          points: d?.student?.points || 0,
+          monthlyFee,
+          rank: d?.student?.rank,
+          profilePhoto: d?.student?.profilePhoto,
+          attendance: d?.metrics?.attendancePercentage,
         });
       } else {
         // Teacher — use dashboard endpoint
@@ -104,7 +117,7 @@ export default function ProfileScreen() {
     { icon: 'mail-outline' as const, label: 'Email', value: profile?.email || 'Not registered' },
     { icon: 'call-outline' as const, label: 'Mobile', value: profile?.mobileNo || 'Not registered' },
     { icon: 'layers-outline' as const, label: 'Batch', value: profile?.batch?.name || 'Unassigned' },
-    { icon: 'cash-outline' as const, label: 'Monthly Fee', value: profile?.monthlyFee ? `₹${Number(profile.monthlyFee).toLocaleString()}` : '—' },
+    { icon: 'cash-outline' as const, label: 'Monthly Fee', value: profile?.monthlyFee != null ? `₹${Number(profile.monthlyFee).toLocaleString()}` : '—' },
     { icon: 'star-outline' as const, label: 'Points', value: `${Math.trunc(profile?.points || 0)} ⭐` },
     { icon: 'trophy-outline' as const, label: 'Rank', value: profile?.rank ? `#${profile.rank}` : '—' },
     { icon: 'calendar-outline' as const, label: 'Attendance', value: profile?.attendance ? `${profile.attendance}%` : '—' },
